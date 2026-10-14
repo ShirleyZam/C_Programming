@@ -1,0 +1,60 @@
+#include <iostream> 
+#include <vector> 
+#include <cstdlib>
+#include <omp.h>
+
+using namespace std; 
+
+int main(int argc, char*argv[]){
+
+    int n = stoi(argv[1]);
+    int p = stoi(argv[2]);
+
+    vector<int> A(n), B(n), C(n); 
+    vector<int> work(p);
+
+    for(int i = 0; i < n; i++){
+        A[i]= i + 1; // starting at 1
+        B[i] = n - i; // starting at n until 1 
+    }
+
+    int size = n/p; 
+    
+
+    #pragma omp parallel num_threads(p)
+    {
+        int myid = omp_get_thread_num();
+        int mystart = myid * size; 
+        int myend; 
+        int remainder = n% p;
+
+        if (myid == p - 1){
+            myend = mystart + size + remainder;
+        }else{
+            myend = mystart + size;
+        }
+
+        for(int i = mystart; i < myend; i++){
+            C[i] = A[i] + B[i];
+        }
+
+        work[myid] = myend - mystart;
+       
+    }
+
+    for (int i = 0; i < p; i++) {
+        cout << "Thread " << i << " handles "
+        << work[i] << " elements" << endl;
+    }
+
+    bool correct = true;
+    for (int i =0; i<n; i++){
+        if (C[i] != n + 1){
+            correct = false;
+            break;
+        }
+    }
+    cout << "Are they correct?" 
+    << (correct ? " Yes":" No") << endl;
+
+}
