@@ -22,104 +22,61 @@ void V(int &S, int maximum, const string &name) {
     S++;
 }
 
-// Global variables
+// Semaphores
 int readerSlots = 2;
 int readerCountLock = 1;
 int resourceAccessLock = 1;
 
+// Counters
 int read_count = 0;
-
 int activeReaders = 0;
 int activeWriters = 0;
 
-// Separate program counters
+// Per-process state (3 readers, 2 writers)
 int readerPC[3] = {0, 0, 0};
 int writerPC[2] = {0, 0};
-
-// Critical Section status
 bool readerInCS[3] = {false, false, false};
 bool writerInCS[2] = {false, false};
-
-// Completion status
 bool readerCompleted[3] = {false, false, false};
 bool writerCompleted[2] = {false, false};
 
 bool panicDetected = false;
 
-// Panic message
 void panicMessage(const string &message) {
     cout << "\nPANIC: " << message << "\n";
     panicDetected = true;
 }
 
-
 // Check synchronization rules
 void checkSync() {
+    if (activeReaders > 2)
+        return panicMessage("More than 2 readers are active");
+    if (activeWriters > 1)
+        return panicMessage("More than 1 writer is active");
+    if (activeReaders > 0 && activeWriters > 0)
+        return panicMessage("Reader and Writer active simultaneously");
+    if (read_count < 0 || read_count > 2)
+        return panicMessage("Invalid read count");
+    if (readerSlots < 0 || readerSlots > 2)
+        return panicMessage("Invalid reader slots");
+    if (readerCountLock < 0 || readerCountLock > 1)
+        return panicMessage("Invalid reader count lock");
+    if (resourceAccessLock < 0 || resourceAccessLock > 1)
+        return panicMessage("Invalid resource access lock");
 
-    if (activeReaders > 2) {
-        panicMessage("More than 2 readers are active");
-        return;
-    }
+    int r = 0, w = 0;
+    for (int i = 0; i < 3; i++) if (readerInCS[i]) r++;
+    for (int i = 0; i < 2; i++) if (writerInCS[i]) w++;
 
-    if (activeWriters > 1) {
-        panicMessage("More than 1 writer is active");
-        return;
-    }
-
-    if (activeReaders > 0 && activeWriters > 0) {
-        panicMessage("Reader and Writer active simultaneously");
-        return;
-    }
-
-    if (read_count < 0 || read_count > 2) {
-        panicMessage("Invalid read count");
-        return;
-    }
-
-    if (readerSlots < 0 || readerSlots > 2) {
-        panicMessage("Invalid reader slots");
-        return;
-    }
-
-    if (readerCountLock < 0 || readerCountLock > 1) {
-        panicMessage("Invalid reader count lock");
-        return;
-    }
-
-    if (resourceAccessLock < 0 || resourceAccessLock > 1) {
-        panicMessage("Invalid resource access lock");
-        return;
-    }
-
-    int readerStatusCount = 0;
-    int writerStatusCount = 0;
-
-    for (int i = 0; i < 3; i++) {
-        if (readerInCS[i])
-            readerStatusCount++;
-    }
-
-    for (int i = 0; i < 2; i++) {
-        if (writerInCS[i])
-            writerStatusCount++;
-    }
-
-    if (readerStatusCount != activeReaders) {
-        panicMessage("Reader CS status does not match active reader count");
-        return;
-    }
-
-    if (writerStatusCount != activeWriters) {
-        panicMessage("Writer CS status does not match active writer count");
-        return;
-    }
+    if (r != activeReaders)
+        return panicMessage("Reader CS status does not match active reader count");
+    if (w != activeWriters)
+        return panicMessage("Writer CS status does not match active writer count");
 }
 
-// Reader process
+// R1 PROCESS
 void R1() {
-
     switch (readerPC[0]) {
-
         case 0:
             if (P(readerSlots)) {
                 cout << "I'm R1 in the entry and there are "
@@ -130,8 +87,7 @@ void R1() {
             break;
 
         case 1:
-            if (P(readerCountLock))
-                readerPC[0]++;
+            if (P(readerCountLock)) readerPC[0]++;
             break;
 
         case 2:
@@ -140,8 +96,7 @@ void R1() {
             break;
 
         case 3:
-            if (P(resourceAccessLock))
-                readerPC[0]++;
+            if (P(resourceAccessLock)) readerPC[0]++;
             break;
 
         case 4:
@@ -153,7 +108,6 @@ void R1() {
             cout << "I'm R1 in the CS and there are "
                  << activeReaders << " other readers and "
                  << activeWriters << " writers\n";
-
             activeReaders++;
             readerInCS[0] = true;
             readerPC[0]++;
@@ -161,15 +115,13 @@ void R1() {
 
         case 6:
             cout << "I'm R1 leaving\n";
-
             activeReaders--;
             readerInCS[0] = false;
             readerPC[0]++;
             break;
 
         case 7:
-            if (P(readerCountLock))
-                readerPC[0]++;
+            if (P(readerCountLock)) readerPC[0]++;
             break;
 
         case 8:
@@ -197,14 +149,12 @@ void R1() {
             readerPC[0]++;
             break;
     }
-
     checkSync();
 }
 
+// R2 PROCESS
 void R2() {
-
     switch (readerPC[1]) {
-
         case 0:
             if (P(readerSlots)) {
                 cout << "I'm R2 in the entry and there are "
@@ -215,8 +165,7 @@ void R2() {
             break;
 
         case 1:
-            if (P(readerCountLock))
-                readerPC[1]++;
+            if (P(readerCountLock)) readerPC[1]++;
             break;
 
         case 2:
@@ -225,8 +174,7 @@ void R2() {
             break;
 
         case 3:
-            if (P(resourceAccessLock))
-                readerPC[1]++;
+            if (P(resourceAccessLock)) readerPC[1]++;
             break;
 
         case 4:
@@ -238,7 +186,6 @@ void R2() {
             cout << "I'm R2 in the CS and there are "
                  << activeReaders << " other readers and "
                  << activeWriters << " writers\n";
-
             activeReaders++;
             readerInCS[1] = true;
             readerPC[1]++;
@@ -246,15 +193,13 @@ void R2() {
 
         case 6:
             cout << "I'm R2 leaving\n";
-
             activeReaders--;
             readerInCS[1] = false;
             readerPC[1]++;
             break;
 
         case 7:
-            if (P(readerCountLock))
-                readerPC[1]++;
+            if (P(readerCountLock)) readerPC[1]++;
             break;
 
         case 8:
@@ -282,14 +227,12 @@ void R2() {
             readerPC[1]++;
             break;
     }
-
     checkSync();
 }
 
+// R3 PROCESS
 void R3() {
-
     switch (readerPC[2]) {
-
         case 0:
             if (P(readerSlots)) {
                 cout << "I'm R3 in the entry and there are "
@@ -300,8 +243,7 @@ void R3() {
             break;
 
         case 1:
-            if (P(readerCountLock))
-                readerPC[2]++;
+            if (P(readerCountLock)) readerPC[2]++;
             break;
 
         case 2:
@@ -310,8 +252,7 @@ void R3() {
             break;
 
         case 3:
-            if (P(resourceAccessLock))
-                readerPC[2]++;
+            if (P(resourceAccessLock)) readerPC[2]++;
             break;
 
         case 4:
@@ -323,7 +264,6 @@ void R3() {
             cout << "I'm R3 in the CS and there are "
                  << activeReaders << " other readers and "
                  << activeWriters << " writers\n";
-
             activeReaders++;
             readerInCS[2] = true;
             readerPC[2]++;
@@ -331,15 +271,13 @@ void R3() {
 
         case 6:
             cout << "I'm R3 leaving\n";
-
             activeReaders--;
             readerInCS[2] = false;
             readerPC[2]++;
             break;
 
         case 7:
-            if (P(readerCountLock))
-                readerPC[2]++;
+            if (P(readerCountLock)) readerPC[2]++;
             break;
 
         case 8:
@@ -367,22 +305,17 @@ void R3() {
             readerPC[2]++;
             break;
     }
-
     checkSync();
 }
 
-
-// Writer process
+// W1 PROCESS
 void W1() {
-
     switch (writerPC[0]) {
-
         case 0:
             if (P(resourceAccessLock)) {
                 cout << "I'm W1 in the entry and there are "
                      << activeReaders << " readers and "
                      << activeWriters << " writers\n";
-
                 writerPC[0]++;
             }
             break;
@@ -391,7 +324,6 @@ void W1() {
             cout << "I'm W1 in the CS and there are "
                  << activeReaders << " readers and "
                  << activeWriters << " other writers\n";
-
             activeWriters++;
             writerInCS[0] = true;
             writerPC[0]++;
@@ -399,7 +331,6 @@ void W1() {
 
         case 2:
             cout << "I'm W1 leaving\n";
-
             activeWriters--;
             writerInCS[0] = false;
             writerPC[0]++;
@@ -415,20 +346,17 @@ void W1() {
             writerPC[0]++;
             break;
     }
-
     checkSync();
 }
 
+// W2 PROCESS
 void W2() {
-
     switch (writerPC[1]) {
-
         case 0:
             if (P(resourceAccessLock)) {
                 cout << "I'm W2 in the entry and there are "
                      << activeReaders << " readers and "
                      << activeWriters << " writers\n";
-
                 writerPC[1]++;
             }
             break;
@@ -437,7 +365,6 @@ void W2() {
             cout << "I'm W2 in the CS and there are "
                  << activeReaders << " readers and "
                  << activeWriters << " other writers\n";
-
             activeWriters++;
             writerInCS[1] = true;
             writerPC[1]++;
@@ -445,7 +372,6 @@ void W2() {
 
         case 2:
             cout << "I'm W2 leaving\n";
-
             activeWriters--;
             writerInCS[1] = false;
             writerPC[1]++;
@@ -461,102 +387,40 @@ void W2() {
             writerPC[1]++;
             break;
     }
-
     checkSync();
 }
 
+bool allFinished() {
+    for (int i = 0; i < 3; i++) if (!readerCompleted[i]) return false;
+    for (int i = 0; i < 2; i++) if (!writerCompleted[i]) return false;
+    return true;
+}
 
-
-// Main function
 int main() {
+    srand(static_cast<unsigned int>(time(0)));
 
-    srand(time(0));
-
-    cout << "Readers: 3\n";
-    cout << "Writers: 2\n";
-    cout << "readerSlots = 2\n";
-    cout << "readerCountLock = 1\n";
-    cout << "resourceAccessLock = 1\n";
-
-    int completedCount = 0;
-
-    while (completedCount < 5 && !panicDetected) {
-
+    while (!allFinished() && !panicDetected) {
+        // IDs 0-2 = readers R1-R3, 3-4 = writers W1-W2
         int available[5];
         int count = 0;
 
-        // Find unfinished readers
-        for (int i = 0; i < 3; i++) {
-            if (!readerCompleted[i]) {
-                available[count++] = i;
-            }
-        }
+        for (int i = 0; i < 3; i++) if (!readerCompleted[i]) available[count++] = i;
+        for (int i = 0; i < 2; i++) if (!writerCompleted[i]) available[count++] = i + 3;
 
-        // Find unfinished writers
-        for (int i = 0; i < 2; i++) {
-            if (!writerCompleted[i]) {
-                available[count++] = i + 3;
-            }
-        }
-
-        if (count == 0)
-            break;
-
-        // Randomly select a process
         int selected = available[rand() % count];
 
-
-       switch (selected) {
-
-    case 0:
-        R1();
-        break;
-
-    case 1:
-        R2();
-        break;
-
-    case 2:
-        R3();
-        break;
-
-    case 3:
-        W1();
-        break;
-
-    case 4:
-        W2();
-        break;
-}
+        switch (selected) {
+            case 0: R1(); break;
+            case 1: R2(); break;
+            case 2: R3(); break;
+            case 3: W1(); break;
+            case 4: W2(); break;
+        }
 
         if (panicDetected) {
             cout << "\nSimulation stopped because of a panic.\n";
             break;
         }
-
-
-        // Count completed processes
-        completedCount = 0;
-
-        for (int i = 0; i < 3; i++) {
-            if (readerCompleted[i])
-                completedCount++;
-        }
-
-        for (int i = 0; i < 2; i++) {
-            if (writerCompleted[i])
-                completedCount++;
-        }
     }
-
-    if (!panicDetected) {
-        cout << "\nAll five processes completed.\n";
-    }
-
-    cout << "\nFinal read_count: " << read_count << "\n";
-    cout << "Final readerSlots: " << readerSlots << "\n";
-    cout << "Final readerCountLock: " << readerCountLock << "\n";
-    cout << "Final resourceAccessLock: " << resourceAccessLock << "\n";
-
     return 0;
 }
