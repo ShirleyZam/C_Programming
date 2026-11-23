@@ -1,0 +1,704 @@
+#include <iostream>
+#include <string>
+#include <cstdlib>
+#include <ctime>
+
+using namespace std;
+
+// TestAndSet function
+int TestAndSet(int &lock) {
+    int oldValue = lock;
+    lock = 1;
+    return oldValue;
+}
+
+// Locks: 0 = unlocked, 1 = locked
+int readerCountLock = 0;
+int resourceAccessLock = 0;
+
+// Counters
+int read_count = 0;
+int activeReaders = 0;
+int activeWriters = 0;
+
+// Separate program counters
+int readerPC[3] = {0, 0, 0};
+int writerPC[2] = {0, 0};
+
+// Critical section status
+bool readerInCS[3] = {false, false, false};
+bool writerInCS[2] = {false, false};
+
+// Completion status
+bool readerCompleted[3] = {false, false, false};
+bool writerCompleted[2] = {false, false};
+
+bool panicDetected = false;
+
+
+// Panic message
+void panicMessage(const string &message) {
+    cout << "\nPANIC: " << message << "\n";
+    panicDetected = true;
+}
+
+
+// Check synchronization rules
+void checkSync() {
+
+    if (activeReaders < 0 || activeReaders > 2) {
+        panicMessage("Invalid number of active readers");
+        return;
+    }
+
+    if (activeWriters < 0 || activeWriters > 1) {
+        panicMessage("Invalid number of active writers");
+        return;
+    }
+
+    if (activeReaders > 0 && activeWriters > 0) {
+        panicMessage("Readers and writers are in the CS simultaneously");
+        return;
+    }
+
+    if (read_count < 0 || read_count > 2) {
+        panicMessage("Invalid read_count");
+        return;
+    }
+
+    if (read_count != activeReaders) {
+        panicMessage("read_count does not match activeReaders");
+        return;
+    }
+
+    if (readerCountLock < 0 || readerCountLock > 1) {
+        panicMessage("Invalid readerCountLock");
+        return;
+    }
+
+    if (resourceAccessLock < 0 || resourceAccessLock > 1) {
+        panicMessage("Invalid resourceAccessLock");
+        return;
+    }
+
+    int readerStatusCount = 0;
+    int writerStatusCount = 0;
+
+    for (int i = 0; i < 3; i++) {
+        if (readerInCS[i]) {
+            readerStatusCount++;
+        }
+    }
+
+    for (int i = 0; i < 2; i++) {
+        if (writerInCS[i]) {
+            writerStatusCount++;
+        }
+    }
+
+    if (readerStatusCount != activeReaders) {
+        panicMessage("Reader status does not match activeReaders");
+        return;
+    }
+
+    if (writerStatusCount != activeWriters) {
+        panicMessage("Writer status does not match activeWriters");
+        return;
+    }
+
+    if ((activeReaders > 0 || activeWriters > 0)
+        && resourceAccessLock == 0) {
+        panicMessage("A process is in the CS without resourceAccessLock");
+        return;
+    }
+}
+
+
+// R1 PROCESS
+void R1() {
+
+    switch (readerPC[0]) {
+
+        case 0:
+            cout << "I'm R1 in the entry and there are "
+                 << activeReaders << " readers and "
+                 << activeWriters << " writers.\n";
+
+            if (TestAndSet(readerCountLock) == 0) {
+                cout << "R1 acquired readerCountLock.\n";
+                readerPC[0] = 1;
+            } else {
+                cout << "R1 is waiting for readerCountLock.\n";
+            }
+            break;
+
+        case 1:
+            if (read_count >= 2) {
+                cout << "R1 is waiting because 2 readers are already inside.\n";
+                readerCountLock = 0;
+                cout << "R1 released readerCountLock.\n";
+                readerPC[0] = 0;
+            } else if (read_count == 0) {
+                cout << "R1 is the first reader and must acquire resourceAccessLock.\n";
+                readerPC[0] = 2;
+            } else {
+                cout << "R1 is joining the existing readers.\n";
+                readerPC[0] = 3;
+            }
+            break;
+
+        case 2:
+            if (TestAndSet(resourceAccessLock) == 0) {
+                cout << "R1 acquired resourceAccessLock.\n";
+                readerPC[0] = 3;
+            } else {
+                cout << "R1 is waiting because a writer is inside the CS.\n";
+                readerCountLock = 0;
+                cout << "R1 released readerCountLock.\n";
+                readerPC[0] = 0;
+            }
+            break;
+
+        case 3:
+            read_count++;
+            activeReaders++;
+            readerInCS[0] = true;
+
+            cout << "I'm R1 in the CS and there are "
+                 << activeReaders - 1 << " other readers and "
+                 << activeWriters << " other writers.\n";
+
+            cout << "R1 increased read_count to " << read_count << ".\n";
+
+            readerPC[0] = 4;
+            break;
+
+        case 4:
+            readerCountLock = 0;
+            cout << "R1 released readerCountLock.\n";
+            readerPC[0] = 5;
+            break;
+
+        case 5:
+            cout << "R1 is reading the shared data buffer.\n";
+            readerPC[0] = 6;
+            break;
+
+        case 6:
+            if (TestAndSet(readerCountLock) == 0) {
+                cout << "R1 acquired readerCountLock to leave.\n";
+                readerPC[0] = 7;
+            } else {
+                cout << "R1 is waiting for readerCountLock to leave.\n";
+            }
+            break;
+
+        case 7:
+            read_count--;
+            activeReaders--;
+            readerInCS[0] = false;
+
+            cout << "I'm R1 leaving the CS. There are "
+                 << activeReaders << " readers remaining.\n";
+
+            cout << "read_count is now " << read_count << ".\n";
+
+            if (read_count == 0) {
+                readerPC[0] = 8;
+            } else {
+                readerPC[0] = 9;
+            }
+            break;
+
+        case 8:
+            resourceAccessLock = 0;
+            cout << "R1 released resourceAccessLock.\n";
+            readerPC[0] = 9;
+            break;
+
+        case 9:
+            readerCountLock = 0;
+            cout << "R1 released readerCountLock.\n";
+            readerPC[0] = 10;
+            break;
+
+        case 10:
+            readerCompleted[0] = true;
+            cout << "R1 has finished.\n";
+            readerPC[0] = 11;
+            break;
+    }
+
+    checkSync();
+}
+
+
+// R2 PROCESS
+void R2() {
+
+    switch (readerPC[1]) {
+
+        case 0:
+            cout << "I'm R2 in the entry and there are "
+                 << activeReaders << " readers and "
+                 << activeWriters << " writers.\n";
+
+            if (TestAndSet(readerCountLock) == 0) {
+                cout << "R2 acquired readerCountLock.\n";
+                readerPC[1] = 1;
+            } else {
+                cout << "R2 is waiting for readerCountLock.\n";
+            }
+            break;
+
+        case 1:
+            if (read_count >= 2) {
+                cout << "R2 is waiting because 2 readers are already inside.\n";
+                readerCountLock = 0;
+                cout << "R2 released readerCountLock.\n";
+                readerPC[1] = 0;
+            } else if (read_count == 0) {
+                cout << "R2 is the first reader and must acquire resourceAccessLock.\n";
+                readerPC[1] = 2;
+            } else {
+                cout << "R2 is joining the existing readers.\n";
+                readerPC[1] = 3;
+            }
+            break;
+
+        case 2:
+            if (TestAndSet(resourceAccessLock) == 0) {
+                cout << "R2 acquired resourceAccessLock.\n";
+                readerPC[1] = 3;
+            } else {
+                cout << "R2 is waiting because a writer is inside the CS.\n";
+                readerCountLock = 0;
+                cout << "R2 released readerCountLock.\n";
+                readerPC[1] = 0;
+            }
+            break;
+
+        case 3:
+            read_count++;
+            activeReaders++;
+            readerInCS[1] = true;
+
+            cout << "I'm R2 in the CS and there are "
+                 << activeReaders - 1 << " other readers and "
+                 << activeWriters << " other writers.\n";
+
+            cout << "R2 increased read_count to " << read_count << ".\n";
+
+            readerPC[1] = 4;
+            break;
+
+        case 4:
+            readerCountLock = 0;
+            cout << "R2 released readerCountLock.\n";
+            readerPC[1] = 5;
+            break;
+
+        case 5:
+            cout << "R2 is reading the shared data buffer.\n";
+            readerPC[1] = 6;
+            break;
+
+        case 6:
+            if (TestAndSet(readerCountLock) == 0) {
+                cout << "R2 acquired readerCountLock to leave.\n";
+                readerPC[1] = 7;
+            } else {
+                cout << "R2 is waiting for readerCountLock to leave.\n";
+            }
+            break;
+
+        case 7:
+            read_count--;
+            activeReaders--;
+            readerInCS[1] = false;
+
+            cout << "I'm R2 leaving the CS. There are "
+                 << activeReaders << " readers remaining.\n";
+
+            cout << "read_count is now " << read_count << ".\n";
+
+            if (read_count == 0) {
+                readerPC[1] = 8;
+            } else {
+                readerPC[1] = 9;
+            }
+            break;
+
+        case 8:
+            resourceAccessLock = 0;
+            cout << "R2 released resourceAccessLock.\n";
+            readerPC[1] = 9;
+            break;
+
+        case 9:
+            readerCountLock = 0;
+            cout << "R2 released readerCountLock.\n";
+            readerPC[1] = 10;
+            break;
+
+        case 10:
+            readerCompleted[1] = true;
+            cout << "R2 has finished.\n";
+            readerPC[1] = 11;
+            break;
+    }
+
+    checkSync();
+}
+
+
+// R3 PROCESS
+void R3() {
+
+    switch (readerPC[2]) {
+
+        case 0:
+            cout << "I'm R3 in the entry and there are "
+                 << activeReaders << " readers and "
+                 << activeWriters << " writers.\n";
+
+            if (TestAndSet(readerCountLock) == 0) {
+                cout << "R3 acquired readerCountLock.\n";
+                readerPC[2] = 1;
+            } else {
+                cout << "R3 is waiting for readerCountLock.\n";
+            }
+            break;
+
+        case 1:
+            if (read_count >= 2) {
+                cout << "R3 is waiting because 2 readers are already inside.\n";
+                readerCountLock = 0;
+                cout << "R3 released readerCountLock.\n";
+                readerPC[2] = 0;
+            } else if (read_count == 0) {
+                cout << "R3 is the first reader and must acquire resourceAccessLock.\n";
+                readerPC[2] = 2;
+            } else {
+                cout << "R3 is joining the existing readers.\n";
+                readerPC[2] = 3;
+            }
+            break;
+
+        case 2:
+            if (TestAndSet(resourceAccessLock) == 0) {
+                cout << "R3 acquired resourceAccessLock.\n";
+                readerPC[2] = 3;
+            } else {
+                cout << "R3 is waiting because a writer is inside the CS.\n";
+                readerCountLock = 0;
+                cout << "R3 released readerCountLock.\n";
+                readerPC[2] = 0;
+            }
+            break;
+
+        case 3:
+            read_count++;
+            activeReaders++;
+            readerInCS[2] = true;
+
+            cout << "I'm R3 in the CS and there are "
+                 << activeReaders - 1 << " other readers and "
+                 << activeWriters << " other writers.\n";
+
+            cout << "R3 increased read_count to " << read_count << ".\n";
+
+            readerPC[2] = 4;
+            break;
+
+        case 4:
+            readerCountLock = 0;
+            cout << "R3 released readerCountLock.\n";
+            readerPC[2] = 5;
+            break;
+
+        case 5:
+            cout << "R3 is reading the shared data buffer.\n";
+            readerPC[2] = 6;
+            break;
+
+        case 6:
+            if (TestAndSet(readerCountLock) == 0) {
+                cout << "R3 acquired readerCountLock to leave.\n";
+                readerPC[2] = 7;
+            } else {
+                cout << "R3 is waiting for readerCountLock to leave.\n";
+            }
+            break;
+
+        case 7:
+            read_count--;
+            activeReaders--;
+            readerInCS[2] = false;
+
+            cout << "I'm R3 leaving the CS. There are "
+                 << activeReaders << " readers remaining.\n";
+
+            cout << "read_count is now " << read_count << ".\n";
+
+            if (read_count == 0) {
+                readerPC[2] = 8;
+            } else {
+                readerPC[2] = 9;
+            }
+            break;
+
+        case 8:
+            resourceAccessLock = 0;
+            cout << "R3 released resourceAccessLock.\n";
+            readerPC[2] = 9;
+            break;
+
+        case 9:
+            readerCountLock = 0;
+            cout << "R3 released readerCountLock.\n";
+            readerPC[2] = 10;
+            break;
+
+        case 10:
+            readerCompleted[2] = true;
+            cout << "R3 has finished.\n";
+            readerPC[2] = 11;
+            break;
+    }
+
+    checkSync();
+}
+
+
+// W1 PROCESS
+void W1() {
+
+    switch (writerPC[0]) {
+
+        case 0:
+            cout << "I'm W1 in the entry and there are "
+                 << activeReaders << " readers and "
+                 << activeWriters << " writers.\n";
+
+            if (TestAndSet(resourceAccessLock) == 0) {
+                cout << "W1 acquired resourceAccessLock.\n";
+                writerPC[0] = 1;
+            } else {
+                cout << "W1 is waiting for resourceAccessLock.\n";
+            }
+            break;
+
+        case 1:
+            activeWriters++;
+            writerInCS[0] = true;
+
+            cout << "I'm W1 in the CS and there are "
+                 << activeReaders << " readers and "
+                 << activeWriters - 1 << " other writers.\n";
+
+            writerPC[0] = 2;
+            break;
+
+        case 2:
+            cout << "W1 is updating the shared data buffer.\n";
+            writerPC[0] = 3;
+            break;
+
+        case 3:
+            activeWriters--;
+            writerInCS[0] = false;
+
+            cout << "I'm W1 leaving the CS.\n";
+
+            writerPC[0] = 4;
+            break;
+
+        case 4:
+            resourceAccessLock = 0;
+            cout << "W1 released resourceAccessLock.\n";
+            writerPC[0] = 5;
+            break;
+
+        case 5:
+            writerCompleted[0] = true;
+            cout << "W1 has finished.\n";
+            writerPC[0] = 6;
+            break;
+    }
+
+    checkSync();
+}
+
+
+// W2 PROCESS
+void W2() {
+
+    switch (writerPC[1]) {
+
+        case 0:
+            cout << "I'm W2 in the entry and there are "
+                 << activeReaders << " readers and "
+                 << activeWriters << " writers.\n";
+
+            if (TestAndSet(resourceAccessLock) == 0) {
+                cout << "W2 acquired resourceAccessLock.\n";
+                writerPC[1] = 1;
+            } else {
+                cout << "W2 is waiting for resourceAccessLock.\n";
+            }
+            break;
+
+        case 1:
+            activeWriters++;
+            writerInCS[1] = true;
+
+            cout << "I'm W2 in the CS and there are "
+                 << activeReaders << " readers and "
+                 << activeWriters - 1 << " other writers.\n";
+
+            writerPC[1] = 2;
+            break;
+
+        case 2:
+            cout << "W2 is updating the shared data buffer.\n";
+            writerPC[1] = 3;
+            break;
+
+        case 3:
+            activeWriters--;
+            writerInCS[1] = false;
+
+            cout << "I'm W2 leaving the CS.\n";
+
+            writerPC[1] = 4;
+            break;
+
+        case 4:
+            resourceAccessLock = 0;
+            cout << "W2 released resourceAccessLock.\n";
+            writerPC[1] = 5;
+            break;
+
+        case 5:
+            writerCompleted[1] = true;
+            cout << "W2 has finished.\n";
+            writerPC[1] = 6;
+            break;
+    }
+
+    checkSync();
+}
+
+
+// Check whether all processes finished
+bool allFinished() {
+
+    for (int i = 0; i < 3; i++) {
+        if (!readerCompleted[i]) {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < 2; i++) {
+        if (!writerCompleted[i]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+
+// MAIN
+int main() {
+
+    srand(static_cast<unsigned int>(time(0)));
+
+    cout << "Readers: 3\n";
+    cout << "Writers: 2\n";
+    cout << "readerCountLock = 0\n";
+    cout << "resourceAccessLock = 0\n";
+
+    int turn = 1;
+
+    while (!allFinished() && !panicDetected) {
+
+        int available[5];
+        int count = 0;
+
+        // Add unfinished readers
+        for (int i = 0; i < 3; i++) {
+            if (!readerCompleted[i]) {
+                available[count++] = i;
+            }
+        }
+
+        // Add unfinished writers
+        for (int i = 0; i < 2; i++) {
+            if (!writerCompleted[i]) {
+                available[count++] = i + 3;
+            }
+        }
+
+        if (count == 0) {
+            break;
+        }
+
+        // Randomly select one process
+        int selected = available[rand() % count];
+
+        cout << "\nTurn " << turn << ": ";
+
+        // Execute one process instruction
+        switch (selected) {
+
+            case 0:
+                cout << "R1\n";
+                R1();
+                break;
+
+            case 1:
+                cout << "R2\n";
+                R2();
+                break;
+
+            case 2:
+                cout << "R3\n";
+                R3();
+                break;
+
+            case 3:
+                cout << "W1\n";
+                W1();
+                break;
+
+            case 4:
+                cout << "W2\n";
+                W2();
+                break;
+        }
+
+        turn++;
+
+        if (panicDetected) {
+            cout << "\nSimulation stopped because of a panic.\n";
+            break;
+        }
+    }
+
+
+    // Final results
+    cout << "\nFinal read_count: " << read_count << "\n";
+    cout << "Final activeReaders: " << activeReaders << "\n";
+    cout << "Final activeWriters: " << activeWriters << "\n";
+    cout << "Final readerCountLock: " << readerCountLock << "\n";
+    cout << "Final resourceAccessLock: " << resourceAccessLock << "\n";
+
+    if (!panicDetected && allFinished()) {
+        cout << "\nAll five processes completed.\n";
+        cout << "No synchronization errors detected.\n";
+    }
+
+    return 0;
+}
