@@ -2,9 +2,10 @@
 #include <string>
 #include <cstdlib>
 #include <ctime>
- 
+
 using namespace std;
- 
+
+// Semaphore operations
 bool P(int &S) {
     if (S > 0) {
         S--;
@@ -12,515 +13,550 @@ bool P(int &S) {
     }
     return false;
 }
- 
+
 void V(int &S, int maximum, const string &name) {
     if (S >= maximum) {
-        cout << "\n PANIC: Invalid signal on " << name << "\n";
+        cout << "\nPANIC: Invalid signal on " << name << "\n";
         return;
     }
     S++;
 }
- 
+
 // Global variables
-// (renamed from "mutex" to avoid clashing with std::mutex under "using namespace std")
 int readerSlots = 2;
-int mutexSem = 1;
-int rw_mutex = 1;
- 
+int readerCountLock = 1;
+int resourceAccessLock = 1;
+
 int read_count = 0;
- 
+
 int activeReaders = 0;
 int activeWriters = 0;
- 
+
+// Separate program counters
 int readerPC[3] = {0, 0, 0};
 int writerPC[2] = {0, 0};
- 
+
+// Critical Section status
+bool readerInCS[3] = {false, false, false};
+bool writerInCS[2] = {false, false};
+
+// Completion status
 bool readerCompleted[3] = {false, false, false};
 bool writerCompleted[2] = {false, false};
+
 bool panicDetected = false;
- 
+
+// Panic message
 void panicMessage(const string &message) {
-    cout << "\n PANIC: " << message << "\n";
+    cout << "\nPANIC: " << message << "\n";
     panicDetected = true;
 }
- 
+
+
+// Check synchronization rules
 void checkSync() {
+
     if (activeReaders > 2) {
         panicMessage("More than 2 readers are active");
         return;
     }
+
     if (activeWriters > 1) {
         panicMessage("More than 1 writer is active");
         return;
     }
+
     if (activeReaders > 0 && activeWriters > 0) {
         panicMessage("Reader and Writer active simultaneously");
         return;
     }
+
     if (read_count < 0 || read_count > 2) {
         panicMessage("Invalid read count");
         return;
     }
+
     if (readerSlots < 0 || readerSlots > 2) {
         panicMessage("Invalid reader slots");
         return;
     }
-    if (mutexSem < 0 || mutexSem > 1) {
-        panicMessage("Invalid mutex value");
+
+    if (readerCountLock < 0 || readerCountLock > 1) {
+        panicMessage("Invalid reader count lock");
         return;
     }
-    if (rw_mutex < 0 || rw_mutex > 1) {
-        panicMessage("Invalid rw_mutex value");
+
+    if (resourceAccessLock < 0 || resourceAccessLock > 1) {
+        panicMessage("Invalid resource access lock");
+        return;
+    }
+
+    int readerStatusCount = 0;
+    int writerStatusCount = 0;
+
+    for (int i = 0; i < 3; i++) {
+        if (readerInCS[i])
+            readerStatusCount++;
+    }
+
+    for (int i = 0; i < 2; i++) {
+        if (writerInCS[i])
+            writerStatusCount++;
+    }
+
+    if (readerStatusCount != activeReaders) {
+        panicMessage("Reader CS status does not match active reader count");
+        return;
+    }
+
+    if (writerStatusCount != activeWriters) {
+        panicMessage("Writer CS status does not match active writer count");
         return;
     }
 }
- 
-void runReader1() {
- 
-    cout << "Reader " << "R1" << " | PC = " << readerPC[0] << " : ";
- 
+
+// Reader process
+void R1() {
+
     switch (readerPC[0]) {
+
         case 0:
             if (P(readerSlots)) {
-                cout << "Has reader slot\n";
+                cout << "I'm R1 in the entry and there are "
+                     << activeReaders << " readers and "
+                     << activeWriters << " writers\n";
                 readerPC[0]++;
-            } else {
-                cout << "Waiting for reader slot\n";
             }
             break;
- 
+
         case 1:
-            if (P(mutexSem)) {
-                cout << "Has mutex\n";
+            if (P(readerCountLock))
                 readerPC[0]++;
-            } else {
-                cout << "Waiting for mutex\n";
-            }
             break;
- 
+
         case 2:
             read_count++;
-            cout << "Incremented read_count to " << read_count << ".\n";
             readerPC[0] = (read_count == 1) ? 3 : 4;
             break;
- 
+
         case 3:
-            if (P(rw_mutex)) {
-                cout << "First reader has rw_mutex\n";
+            if (P(resourceAccessLock))
                 readerPC[0]++;
-            } else {
-                cout << "Waiting for rw_mutex\n";
-            }
             break;
- 
+
         case 4:
-            V(mutexSem, 1, "mutex");
-            cout << "Released mutex\n";
+            V(readerCountLock, 1, "readerCountLock");
             readerPC[0]++;
             break;
- 
+
         case 5:
-            if (activeWriters != 0)
-                panicMessage("R1 entered while writer active");
+            cout << "I'm R1 in the CS and there are "
+                 << activeReaders << " other readers and "
+                 << activeWriters << " writers\n";
+
             activeReaders++;
-            cout << "Reading shared resource\n";
+            readerInCS[0] = true;
             readerPC[0]++;
             break;
- 
+
         case 6:
+            cout << "I'm R1 leaving\n";
+
             activeReaders--;
-            cout << "Finished reading\n";
+            readerInCS[0] = false;
             readerPC[0]++;
             break;
- 
+
         case 7:
-            if (P(mutexSem)) {
-                cout << "Has mutex\n";
+            if (P(readerCountLock))
                 readerPC[0]++;
-            } else {
-                cout << "Waiting to get mutex\n";
-            }
             break;
- 
+
         case 8:
             read_count--;
-            cout << "Decremented read_count to " << read_count << "\n";
             readerPC[0] = (read_count == 0) ? 9 : 10;
             break;
- 
+
         case 9:
-            V(rw_mutex, 1, "rw_mutex");
-            cout << "Last reader released rw_mutex\n";
+            V(resourceAccessLock, 1, "resourceAccessLock");
             readerPC[0]++;
             break;
- 
+
         case 10:
-            V(mutexSem, 1, "mutex");
-            cout << "Released mutex\n";
+            V(readerCountLock, 1, "readerCountLock");
             readerPC[0]++;
             break;
- 
+
         case 11:
             V(readerSlots, 2, "readerSlots");
-            cout << "Released reader slot\n";
             readerPC[0]++;
             break;
- 
+
         case 12:
-            cout << "Reader " << "R1" << " completed\n";
             readerCompleted[0] = true;
             readerPC[0]++;
             break;
     }
+
     checkSync();
 }
- 
-void runReader2() {
- 
-    cout << "Reader " << "R2" << " | PC = " << readerPC[1] << " : ";
- 
+
+void R2() {
+
     switch (readerPC[1]) {
+
         case 0:
             if (P(readerSlots)) {
-                cout << "Has reader slot\n";
+                cout << "I'm R2 in the entry and there are "
+                     << activeReaders << " readers and "
+                     << activeWriters << " writers\n";
                 readerPC[1]++;
-            } else {
-                cout << "Waiting for reader slot\n";
             }
             break;
- 
+
         case 1:
-            if (P(mutexSem)) {
-                cout << "Has mutex\n";
+            if (P(readerCountLock))
                 readerPC[1]++;
-            } else {
-                cout << "Waiting for mutex\n";
-            }
             break;
- 
+
         case 2:
             read_count++;
-            cout << "Incremented read_count to " << read_count << ".\n";
             readerPC[1] = (read_count == 1) ? 3 : 4;
             break;
- 
+
         case 3:
-            if (P(rw_mutex)) {
-                cout << "First reader has rw_mutex\n";
+            if (P(resourceAccessLock))
                 readerPC[1]++;
-            } else {
-                cout << "Waiting for rw_mutex\n";
-            }
             break;
- 
+
         case 4:
-            V(mutexSem, 1, "mutex");
-            cout << "Released mutex\n";
+            V(readerCountLock, 1, "readerCountLock");
             readerPC[1]++;
             break;
- 
+
         case 5:
-            if (activeWriters != 0)
-                panicMessage("R2 entered while writer active");
+            cout << "I'm R2 in the CS and there are "
+                 << activeReaders << " other readers and "
+                 << activeWriters << " writers\n";
+
             activeReaders++;
-            cout << "Reading shared resource\n";
+            readerInCS[1] = true;
             readerPC[1]++;
             break;
- 
+
         case 6:
+            cout << "I'm R2 leaving\n";
+
             activeReaders--;
-            cout << "Finished reading\n";
+            readerInCS[1] = false;
             readerPC[1]++;
             break;
- 
+
         case 7:
-            if (P(mutexSem)) {
-                cout << "Has mutex\n";
+            if (P(readerCountLock))
                 readerPC[1]++;
-            } else {
-                cout << "Waiting to get mutex\n";
-            }
             break;
- 
+
         case 8:
             read_count--;
-            cout << "Decremented read_count to " << read_count << "\n";
             readerPC[1] = (read_count == 0) ? 9 : 10;
             break;
- 
+
         case 9:
-            V(rw_mutex, 1, "rw_mutex");
-            cout << "Last reader released rw_mutex\n";
+            V(resourceAccessLock, 1, "resourceAccessLock");
             readerPC[1]++;
             break;
- 
+
         case 10:
-            V(mutexSem, 1, "mutex");
-            cout << "Released mutex\n";
+            V(readerCountLock, 1, "readerCountLock");
             readerPC[1]++;
             break;
- 
+
         case 11:
             V(readerSlots, 2, "readerSlots");
-            cout << "Released reader slot\n";
             readerPC[1]++;
             break;
- 
+
         case 12:
-            cout << "Reader " << "R2" << " completed\n";
             readerCompleted[1] = true;
             readerPC[1]++;
             break;
     }
+
     checkSync();
 }
- 
-void runReader3() {
- 
-    cout << "Reader " << "R3" << " | PC = " << readerPC[2] << " : ";
- 
+
+void R3() {
+
     switch (readerPC[2]) {
+
         case 0:
             if (P(readerSlots)) {
-                cout << "Has reader slot\n";
+                cout << "I'm R3 in the entry and there are "
+                     << activeReaders << " readers and "
+                     << activeWriters << " writers\n";
                 readerPC[2]++;
-            } else {
-                cout << "Waiting for reader slot\n";
             }
             break;
- 
+
         case 1:
-            if (P(mutexSem)) {
-                cout << "Has mutex\n";
+            if (P(readerCountLock))
                 readerPC[2]++;
-            } else {
-                cout << "Waiting for mutex\n";
-            }
             break;
- 
+
         case 2:
             read_count++;
-            cout << "Incremented read_count to " << read_count << ".\n";
             readerPC[2] = (read_count == 1) ? 3 : 4;
             break;
- 
+
         case 3:
-            if (P(rw_mutex)) {
-                cout << "First reader has rw_mutex\n";
+            if (P(resourceAccessLock))
                 readerPC[2]++;
-            } else {
-                cout << "Waiting for rw_mutex\n";
-            }
             break;
- 
+
         case 4:
-            V(mutexSem, 1, "mutex");
-            cout << "Released mutex\n";
+            V(readerCountLock, 1, "readerCountLock");
             readerPC[2]++;
             break;
- 
+
         case 5:
-            if (activeWriters != 0)
-                panicMessage("R3 entered while writer active");
+            cout << "I'm R3 in the CS and there are "
+                 << activeReaders << " other readers and "
+                 << activeWriters << " writers\n";
+
             activeReaders++;
-            cout << "Reading shared resource\n";
+            readerInCS[2] = true;
             readerPC[2]++;
             break;
- 
+
         case 6:
+            cout << "I'm R3 leaving\n";
+
             activeReaders--;
-            cout << "Finished reading\n";
+            readerInCS[2] = false;
             readerPC[2]++;
             break;
- 
+
         case 7:
-            if (P(mutexSem)) {
-                cout << "Has mutex\n";
+            if (P(readerCountLock))
                 readerPC[2]++;
-            } else {
-                cout << "Waiting to get mutex\n";
-            }
             break;
- 
+
         case 8:
             read_count--;
-            cout << "Decremented read_count to " << read_count << "\n";
             readerPC[2] = (read_count == 0) ? 9 : 10;
             break;
- 
+
         case 9:
-            V(rw_mutex, 1, "rw_mutex");
-            cout << "Last reader released rw_mutex\n";
+            V(resourceAccessLock, 1, "resourceAccessLock");
             readerPC[2]++;
             break;
- 
+
         case 10:
-            V(mutexSem, 1, "mutex");
-            cout << "Released mutex\n";
+            V(readerCountLock, 1, "readerCountLock");
             readerPC[2]++;
             break;
- 
+
         case 11:
             V(readerSlots, 2, "readerSlots");
-            cout << "Released reader slot\n";
             readerPC[2]++;
             break;
- 
+
         case 12:
-            cout << "Reader " << "R3" << " completed\n";
             readerCompleted[2] = true;
             readerPC[2]++;
             break;
     }
+
     checkSync();
 }
- 
-void runWriter1() {
- 
-    cout << "Writer " << "W1" << " | PC = " << writerPC[0] << " : ";
- 
+
+
+// Writer process
+void W1() {
+
     switch (writerPC[0]) {
+
         case 0:
-            if (P(rw_mutex)) {
-                cout << "W1" << " has rw_mutex\n";
+            if (P(resourceAccessLock)) {
+                cout << "I'm W1 in the entry and there are "
+                     << activeReaders << " readers and "
+                     << activeWriters << " writers\n";
+
                 writerPC[0]++;
-            } else {
-                cout << "Waiting for rw_mutex\n";
             }
             break;
- 
+
         case 1:
-            if (activeReaders != 0 || activeWriters != 0) {
-                panicMessage("W1 entered while another process active");
-                return;
-            }
+            cout << "I'm W1 in the CS and there are "
+                 << activeReaders << " readers and "
+                 << activeWriters << " other writers\n";
+
             activeWriters++;
-            cout << "Writing to shared resource\n";
+            writerInCS[0] = true;
             writerPC[0]++;
             break;
- 
+
         case 2:
+            cout << "I'm W1 leaving\n";
+
             activeWriters--;
-            cout << "Finished writing\n";
+            writerInCS[0] = false;
             writerPC[0]++;
             break;
- 
+
         case 3:
-            V(rw_mutex, 1, "rw_mutex");
-            cout << "Released rw_mutex\n";
+            V(resourceAccessLock, 1, "resourceAccessLock");
             writerPC[0]++;
             break;
- 
+
         case 4:
-            cout << "Writer " << "W1" << " completed\n";
             writerCompleted[0] = true;
             writerPC[0]++;
             break;
     }
+
     checkSync();
 }
- 
-void runWriter2() {
- 
-    cout << "Writer " << "W2" << " | PC = " << writerPC[1] << " : ";
- 
+
+void W2() {
+
     switch (writerPC[1]) {
+
         case 0:
-            if (P(rw_mutex)) {
-                cout << "W2" << " has rw_mutex\n";
+            if (P(resourceAccessLock)) {
+                cout << "I'm W2 in the entry and there are "
+                     << activeReaders << " readers and "
+                     << activeWriters << " writers\n";
+
                 writerPC[1]++;
-            } else {
-                cout << "Waiting for rw_mutex\n";
             }
             break;
- 
+
         case 1:
-            if (activeReaders != 0 || activeWriters != 0) {
-                panicMessage("W2 entered while another process active");
-                return;
-            }
+            cout << "I'm W2 in the CS and there are "
+                 << activeReaders << " readers and "
+                 << activeWriters << " other writers\n";
+
             activeWriters++;
-            cout << "Writing to shared resource\n";
+            writerInCS[1] = true;
             writerPC[1]++;
             break;
- 
+
         case 2:
+            cout << "I'm W2 leaving\n";
+
             activeWriters--;
-            cout << "Finished writing\n";
+            writerInCS[1] = false;
             writerPC[1]++;
             break;
- 
+
         case 3:
-            V(rw_mutex, 1, "rw_mutex");
-            cout << "Released rw_mutex\n";
+            V(resourceAccessLock, 1, "resourceAccessLock");
             writerPC[1]++;
             break;
- 
+
         case 4:
-            cout << "Writer " << "W2" << " completed\n";
             writerCompleted[1] = true;
             writerPC[1]++;
             break;
     }
+
     checkSync();
 }
- 
+
+
+
+// Main function
 int main() {
+
     srand(time(0));
- 
+
     cout << "Readers: 3\n";
     cout << "Writers: 2\n";
     cout << "readerSlots = 2\n";
-    cout << "mutex = 1\n";
-    cout << "rw_mutex = 1\n";
- 
+    cout << "readerCountLock = 1\n";
+    cout << "resourceAccessLock = 1\n";
+
     int completedCount = 0;
-    int turn = 1;
- 
+
     while (completedCount < 5 && !panicDetected) {
+
         int available[5];
         int count = 0;
- 
-        for (int i = 0; i < 3; i++)
-            if (!readerCompleted[i])
+
+        // Find unfinished readers
+        for (int i = 0; i < 3; i++) {
+            if (!readerCompleted[i]) {
                 available[count++] = i;
- 
-        for (int i = 0; i < 2; i++)
-            if (!writerCompleted[i])
-                available[count++] = i + 3;
- 
-        int selected = available[rand() % count];
- 
-        cout << "\nTurn " << turn++ << " | ";
- 
-        switch (selected) {
-            case 0: runReader1(); break;
-            case 1: runReader2(); break;
-            case 2: runReader3(); break;
-            case 3: runWriter1(); break;
-            case 4: runWriter2(); break;
+            }
         }
- 
+
+        // Find unfinished writers
+        for (int i = 0; i < 2; i++) {
+            if (!writerCompleted[i]) {
+                available[count++] = i + 3;
+            }
+        }
+
+        if (count == 0)
+            break;
+
+        // Randomly select a process
+        int selected = available[rand() % count];
+
+
+       switch (selected) {
+
+    case 0:
+        R1();
+        break;
+
+    case 1:
+        R2();
+        break;
+
+    case 2:
+        R3();
+        break;
+
+    case 3:
+        W1();
+        break;
+
+    case 4:
+        W2();
+        break;
+}
+
         if (panicDetected) {
             cout << "\nSimulation stopped because of a panic.\n";
             break;
         }
- 
+
+
+        // Count completed processes
         completedCount = 0;
-        for (int i = 0; i < 3; i++)
-            if (readerCompleted[i]) completedCount++;
-        for (int i = 0; i < 2; i++)
-            if (writerCompleted[i]) completedCount++;
+
+        for (int i = 0; i < 3; i++) {
+            if (readerCompleted[i])
+                completedCount++;
+        }
+
+        for (int i = 0; i < 2; i++) {
+            if (writerCompleted[i])
+                completedCount++;
+        }
     }
- 
-    if (!panicDetected)
-        cout << "\nAll five processes completed\n";
- 
-    cout << "Final read_count: " << read_count << "\n";
+
+    if (!panicDetected) {
+        cout << "\nAll five processes completed.\n";
+    }
+
+    cout << "\nFinal read_count: " << read_count << "\n";
     cout << "Final readerSlots: " << readerSlots << "\n";
-    cout << "Final mutex: " << mutexSem << "\n";
-    cout << "Final rw_mutex: " << rw_mutex << "\n";
- 
+    cout << "Final readerCountLock: " << readerCountLock << "\n";
+    cout << "Final resourceAccessLock: " << resourceAccessLock << "\n";
+
     return 0;
 }
-
